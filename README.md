@@ -82,3 +82,19 @@ Ou via `~/.claude.json` (entrée `mcpServers`):
 - `tokens.json` et `.env` sont gitignorés.
 - Le rate-limit local (100/15min, 1000/jour) évite de saturer ton quota Strava.
 - Les tools d'écriture sont marqués comme tels : Claude Code demandera ta confirmation à chaque appel.
+
+## Logs (debug)
+
+Toutes les requêtes API et événements OAuth sont loggés en JSON-lines dans `~/.config/strava-mcp/logs/strava-mcp.log` (rotation 5×1 Mo). Aucun token ni Authorization header n'est écrit.
+
+Niveau réglable via env var :
+```bash
+STRAVA_MCP_LOG_LEVEL=DEBUG uv run python -m strava_mcp.server
+```
+
+Inspecter rapidement :
+```bash
+tail -f ~/.config/strava-mcp/logs/strava-mcp.log | jq .
+# Toutes les erreurs HTTP :
+jq 'select(.event=="http_error")' ~/.config/strava-mcp/logs/strava-mcp.log
+```

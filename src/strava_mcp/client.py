@@ -10,6 +10,9 @@ from typing import Any
 import httpx
 
 from .auth import TokenManager
+from .logging_setup import get_logger
+
+_log = get_logger()
 
 API_BASE = "https://www.strava.com/api/v3"
 
@@ -69,6 +72,7 @@ class StravaClient:
         await self._wait_for_slot()
         url = f"{API_BASE}{path}" if path.startswith("/") else path
         for attempt in range(3):
+            t0 = time.time()
             resp = await self._client.request(
                 method,
                 url,
@@ -78,13 +82,39 @@ class StravaClient:
                 files=files,
                 headers=self._headers(),
             )
+            dt_ms = int((time.time() - t0) * 1000)
+            _log.info(
+                "http",
+                extra={
+                    "event": "http",
+                    "method": method,
+                    "path": path,
+                    "status": resp.status_code,
+                    "duration_ms": dt_ms,
+                    "attempt": attempt,
+                },
+            )
             if resp.status_code == 429:
-                # Honour Retry-After if present, else backoff.
                 retry_after = float(resp.headers.get("Retry-After", "30"))
+                _log.warning(
+                    "rate_limited",
+                    extra={"event": "rate_limited", "retry_after_s": retry_after},
+                )
                 await asyncio.sleep(retry_after)
                 continue
             if resp.status_code >= 400:
-                raise StravaError(resp.status_code, resp.text[:800])
+                body = resp.text[:800]
+                _log.error(
+                    "http_error",
+                    extra={
+                        "event": "http_error",
+                        "method": method,
+                        "path": path,
+                        "status": resp.status_code,
+                        "body": body,
+                    },
+                )
+                raise StravaError(resp.status_code, body)
             if resp.status_code == 204 or not resp.content:
                 return None
             ctype = resp.headers.get("content-type", "")

@@ -17,6 +17,10 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 
+from .logging_setup import get_logger
+
+_log = get_logger()
+
 AUTH_URL = "https://www.strava.com/oauth/authorize"
 TOKEN_URL = "https://www.strava.com/oauth/token"
 DEFAULT_SCOPE = "read,activity:read_all,activity:write,profile:read_all"
@@ -152,6 +156,7 @@ def _run_oauth_flow(client_id: str, client_secret: str, scope: str) -> Tokens:
         expires_at=int(data["expires_at"]),
     )
     _save_tokens(tokens)
+    _log.info("oauth_completed", extra={"event": "oauth_completed", "expires_at": tokens.expires_at})
     return tokens
 
 
@@ -200,6 +205,11 @@ class TokenManager:
     def access_token(self) -> str:
         tokens = self.ensure_authorized()
         if tokens.expires_at - int(time.time()) < 60:
-            tokens = _refresh(self.client_id, self.client_secret, tokens.refresh_token)
+            _log.info("oauth_refresh", extra={"event": "oauth_refresh"})
+            try:
+                tokens = _refresh(self.client_id, self.client_secret, tokens.refresh_token)
+            except Exception:
+                _log.exception("oauth_refresh_failed", extra={"event": "oauth_refresh_failed"})
+                raise
             self._tokens = tokens
         return tokens.access_token
