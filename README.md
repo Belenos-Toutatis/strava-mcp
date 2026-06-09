@@ -1,100 +1,83 @@
 # strava-mcp
 
-Serveur MCP personnel pour brancher Claude sur ton compte Strava : coaching à partir des activités, conseils nutrition, modification d'activités (titre, sport, matériel), et reconstruction d'une sortie unique à partir d'activités splittées.
+MCP server for [Strava](https://www.strava.com/) — full API coverage for activities, segments, routes, clubs, gear, and split activity merging.
 
-## Ce que ça expose
+Built with Python + [FastMCP](https://github.com/jlowin/fastmcp). Works with Claude Desktop, Claude Code, and any MCP-compatible client.
 
-**Lecture**
-- `list_activities`, `get_activity`, `get_activity_streams`, `get_activity_zones`, `get_activity_laps`
-- `get_athlete`, `get_athlete_stats`, `get_athlete_zones`
-- `list_gear`, `get_gear`
+## Features
 
-**Écriture**
-- `update_activity` — name, sport_type, gear_id, description, commute, trainer, hide_from_home
+### Read
+- **Activities** — list, detail, streams (HR, GPS, power, cadence, altitude...), zones, laps
+- **Athlete** — profile, stats (YTD, all-time, recent), HR/power zones
+- **Segments** — detail, explore by area, starred segments, efforts, streams
+- **Routes** — list, detail, streams, export GPX/TCX
+- **Clubs** — list, detail, members, activities, admins
+- **Gear** — list bikes/shoes, detail (km, brand, model)
+- **Social** — comments and kudos on activities
 
-**Fusion d'activités splittées**
-- `detect_split_activities` — détecte les paires consécutives même sport, écart court
-- `merge_split_activities` — reconstruit un GPX continu à partir des streams, l'uploade comme nouvelle activité
+### Write
+- **Update activity** — rename, change sport type, assign gear, mark commute/trainer, edit description
+- **Merge split activities** — detect and recombine activities that were accidentally split into multiple recordings (rebuilds a GPX from streams and uploads it)
 
-## Limites Strava à connaître
-
-- L'API ne permet **pas** de supprimer une activité ni de fusionner nativement deux activités. Après `merge_split_activities`, tu dois supprimer manuellement les originaux via strava.com (les URLs sont retournées).
-- Les exports `.fit` bruts ne sont pas accessibles : la sortie reconstruite contient GPS + HR + puissance + cadence + température, mais pas les laps/pauses du fichier original.
-- Pas de gestion fine des composants (chaîne, pneus) côté API.
+### 31 tools total
 
 ## Setup
 
-### 1. Créer une application Strava
+### 1. Create a Strava API app
 
-Va sur https://www.strava.com/settings/api et crée une appli :
-- **Authorization Callback Domain** : `127.0.0.1`
-- Récupère le `Client ID` et le `Client Secret`.
+Go to https://www.strava.com/settings/api and create an application.
 
-### 2. Configurer le projet
+### 2. Configure credentials
 
 ```bash
-git clone https://github.com/<ton-user>/strava-mcp.git ~/strava-mcp
-cd ~/strava-mcp
+cd strava-mcp
 cp .env.example .env
-# remplis STRAVA_CLIENT_ID et STRAVA_CLIENT_SECRET
-uv sync   # ou: pip install -e .
+# Edit .env with your STRAVA_CLIENT_ID and STRAVA_CLIENT_SECRET
 ```
 
-### 3. Premier lancement (autorisation OAuth)
+### 3. Install and run
 
 ```bash
+# With uv (recommended)
+uv sync
 uv run python -m strava_mcp.server
+
+# First run opens your browser for OAuth authorization
 ```
 
-Au premier démarrage, le navigateur s'ouvre sur Strava pour autoriser les scopes (`read`, `activity:read_all`, `activity:write`, `profile:read_all`). Les tokens sont stockés dans `~/.config/strava-mcp/tokens.json` (chmod 600). Le refresh est automatique.
+### 4. Add to Claude Desktop
 
-### 4. Brancher sur Claude Code
+Add to `~/.config/Claude/claude_desktop_config.json`:
 
-```bash
-claude mcp add strava -- uv --directory ~/strava-mcp run python -m strava_mcp.server
-```
-
-Ou via `~/.claude.json` (entrée `mcpServers`):
 ```json
 {
   "mcpServers": {
     "strava": {
       "command": "uv",
-      "args": ["--directory", "~/strava-mcp", "run", "python", "-m", "strava_mcp.server"]
+      "args": ["--directory", "/path/to/strava-mcp", "run", "python", "-m", "strava_mcp.server"]
     }
   }
 }
 ```
 
-## Exemples d'usage en chat
+## Authentication
 
-- *« Liste mes 10 dernières activités Strava. »*
-- *« Analyse ma sortie d'hier et donne-moi un retour de coach. »*
-- *« Que je mange ce soir vu la sortie que j'ai faite ce matin ? »*
-- *« Renomme ma sortie de samedi en "Sortie cool avec Paul". »*
-- *« Change le vélo utilisé sur cette activité pour mon gravel. »*
-- *« Détecte les sorties splittées des 30 derniers jours. »*
-- *« Fusionne les activités 1234 et 5678 en une seule, mets `dry_run=False` quand tu es sûr. »*
-- *« Analyse ma charge sur les 4 dernières semaines et propose-moi un plan pour cette semaine. »*
+OAuth 2.0 with loopback redirect on `http://127.0.0.1:8731/callback`. Tokens are persisted in `~/.config/strava-mcp/tokens.json` and refreshed automatically.
 
-## Sécurité
+## Rate limits
 
-- `tokens.json` et `.env` sont gitignorés.
-- Le rate-limit local (100/15min, 1000/jour) évite de saturer ton quota Strava.
-- Les tools d'écriture sont marqués comme tels : Claude Code demandera ta confirmation à chaque appel.
+Built-in rate limiter: 100 requests / 15 min, 1000 / day (Strava defaults). Automatic back-off on 429 responses.
 
-## Logs (debug)
+## Logging
 
-Toutes les requêtes API et événements OAuth sont loggés en JSON-lines dans `~/.config/strava-mcp/logs/strava-mcp.log` (rotation 5×1 Mo). Aucun token ni Authorization header n'est écrit.
+JSON-lines logs in `~/.config/strava-mcp/logs/strava-mcp.log` (5 x 1 MB rotation). Set `STRAVA_MCP_LOG_LEVEL=DEBUG` in `.env` for verbose output.
 
-Niveau réglable via env var :
-```bash
-STRAVA_MCP_LOG_LEVEL=DEBUG uv run python -m strava_mcp.server
-```
+## API changes (June 2026)
 
-Inspecter rapidement :
-```bash
-tail -f ~/.config/strava-mcp/logs/strava-mcp.log | jq .
-# Toutes les erreurs HTTP :
-jq 'select(.event=="http_error")' ~/.config/strava-mcp/logs/strava-mcp.log
-```
+Strava announced API changes effective June 2027:
+- Base URL migrating from `www.strava.com/api/v3` to `www.api-v3.strava.com`
+- Auth tokens must be sent in headers (already the case in this implementation)
+
+## License
+
+MIT
